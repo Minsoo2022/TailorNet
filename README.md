@@ -43,8 +43,6 @@ scipy
 [chumpy](https://github.com/mattloper/chumpy)  
 [psbody.mesh](https://github.com/MPI-IS/mesh)
 
-Code works with psbody.mesh v0.4 , pytorch >= v1.0 , chumpy v0.7 and scipy v1.3 .
-
 ## How to Run
 - Download and prepare SMPL model and TailorNet data from [dataset repository](https://github.com/zycliao/TailorNet_dataset).
 - Set DATA_DIR and SMPL paths in `global_var.py` file accordingly.
@@ -96,7 +94,7 @@ frequency predictors for pivots `<shape1>_<style1>`, `<shape2>_<style2>`, and so
 - Use `models.tailornet_model.TailorNetModel` with appropriate logdir arguments to do prediction.
 
 #### Inference Time
-In the paper, we report inference time to be 1-2 ms per frame(depending upon garment) which is averaged inference time over the batch of 21 samples(20-40 ms per batch). Apologies for the ambiguity. Running each sample separately takes almost same time as batch - around 20 ms per frame for all garments. However, note that TailorNet has 21 independent MLPs, so we believe that faster inference time is possible if MLPs are configured to run in parallel on GPU cores.
+In the paper, we report inference time to be 1-2 ms per frame(depending upon garment) which is averaged inference time over the batch of 21 samples(20-40 ms per batch). We apologize for not clearly mentioning that in the paper. Running each sample separately takes almost same time as batch - around 20 ms per frame for all garments. However, note that TailorNet has 21 independent MLPs, so we believe that faster inference time is possible if MLPs are configured to run in parallel on GPU cores.
 
 ### Misc
 - See [./models/skirt_model.md](./models/skirt_model.md) for the explanation of skirt garment model.

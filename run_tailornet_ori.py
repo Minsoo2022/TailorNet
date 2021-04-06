@@ -1,5 +1,7 @@
 import os
 import numpy as np
+import pickle as pkl
+from scipy.spatial.transform import Rotation as R
 import torch
 
 from psbody.mesh import Mesh
@@ -12,22 +14,24 @@ from visualization.blender_renderer import visualize_garment_body
 from dataset.canonical_pose_dataset import get_style, get_shape
 from visualization.vis_utils import get_specific_pose, get_specific_style_old_tshirt
 from visualization.vis_utils import get_specific_shape, get_amass_sequence_thetas
-from utils.interpenetration import remove_interpenetration_fast, remove_interpenetration_fast_custom
+from utils.interpenetration import remove_interpenetration_fast
 from utils.smpl_paths import get_hres
 
 # Set output path where inference results will be stored
+BCNET_SMPL_PATH = "../TailorNet_dataset/ROOT/smpl"
+BCNET_MODEL_NUM = "4"
 OUT_PATH = "./results"
 
 
 def get_single_frame_inputs(garment_class, gender):
     """Prepare some individual frame inputs."""
-    betas = [
-        get_specific_shape('tallthin'),
-        get_specific_shape('shortfat'),
-        get_specific_shape('mean'),
-        get_specific_shape('somethin'),
-        get_specific_shape('somefat'),
-    ]
+    smpl = pkl.load(open(os.path.join(BCNET_SMPL_PATH, 'bcnet_model_{}.pkl'.format(BCNET_MODEL_NUM)), 'rb'))
+    theta, beta = smpl['pose'][0], smpl['shape'][0]
+    theta[0, 1] *= -1
+    theta = R.from_matrix(theta).as_rotvec().reshape(-1)
+
+    thetas = [theta for _ in range(5)]
+    betas = [beta for _ in range(5)]
     # old t-shirt style parameters are centered around [1.5, 0.5, 1.5, 0.0]
     # whereas all other garments styles are centered around [0, 0, 0, 0]
     if garment_class == 'old-t-shirt':
@@ -40,19 +44,12 @@ def get_single_frame_inputs(garment_class, gender):
         ]
     else:
         gammas = [
-            get_style('000', garment_class=garment_class, gender=gender),
-            get_style('001', garment_class=garment_class, gender=gender),
-            get_style('002', garment_class=garment_class, gender=gender),
-            get_style('003', garment_class=garment_class, gender=gender),
-            get_style('004', garment_class=garment_class, gender=gender),
+            np.array([0, 0, 0, 0]),
+            np.array([-1, 0, 0, 0]),
+            np.array([1, 0, 0, 0]),
+            np.array([0, -1, 0, 0]),
+            np.array([0, 1, 0, 0]),
         ]
-    thetas = [
-        get_specific_pose(0),
-        get_specific_pose(1),
-        get_specific_pose(2),
-        get_specific_pose(3),
-        get_specific_pose(4),
-    ]
     return thetas, betas, gammas
 
 
@@ -71,32 +68,14 @@ def get_sequence_inputs(garment_class, gender):
     gammas = np.tile(gamma[None, :], [thetas.shape[0], 1])
     return thetas, betas, gammas
 
-def make_body_mesh_with_clothes():
-    file_dir = '../data/BCNet_merging_mesh/4_0/'
-    file_name = file_dir.split('/')[-1]
-    body = Mesh(filename=os.path.join(file_dir,f'{file_name}_ori.obj'))
-    up = Mesh(filename=os.path.join(file_dir,f'{file_name}_up.obj'))
-    bottom = Mesh(filename=os.path.join(file_dir,f'{file_name}_bottom.obj'))
-
-    up = remove_interpenetration_fast(up, body)
-    pred_body = remove_interpenetration_fast_custom(body, up, threshold=0.0010)
-    pred_body.write_obj(os.path.join(file_dir, 'deformed_body_shirt_0001.obj'))
-
-    bottom = remove_interpenetration_fast(bottom, pred_body)
-    pred_body = remove_interpenetration_fast_custom(pred_body, bottom, threshold=0.0005)
-
-    pred_body.write_obj(os.path.join(file_dir, 'deformed_body_pant_shirt_00010_00005.obj'))
-
-
 
 def run_tailornet():
     gender = 'male'
-    garment_class = 'pant'
-    #garment_class = 'shirt'
-    garment_combine = True
+    garment_class = 'short-pant'
     garment_class_pairs = {
-        #'pant': ['shirt', 't-shirt'],
-        'pant': ['shirt'],
+        'shirt': [],
+        't-shirt': [],
+        'pant': ['shirt', 't-shirt'],
         'short-pant': ['shirt', 't-shirt'],
         'skirt': ['shirt', 't-shirt']
     }
@@ -128,47 +107,25 @@ def run_tailornet():
 
         # get garment from predicted displacements
         body, pred_gar = smpl.run(beta=beta, theta=theta, garment_class=garment_class, garment_d=pred_verts_d)
-
-        # gar_pair_hres = Mesh(
-        #     filename=os.path.join(OUT_PATH,
-        #                           "{}_gar_hres_{}_{:04d}.obj".format(gender, garment_class_pairs[garment_class][0], i)))
-        # gar_pair_hres = remove_interpenetration_fast(gar_pair_hres, body)
-        # pred_body = remove_interpenetration_fast_custom(body, gar_pair_hres, threshold=0.0010)
-        # pred_body.write_obj(os.path.join(OUT_PATH, 'deformed_body_shirt_0001.obj'))
-        #
         pred_gar = remove_interpenetration_fast(pred_gar, body)
-        pred_body, _ = remove_interpenetration_fast_custom(body, pred_gar, threshold=0.0005)
-        pred_body.write_obj(os.path.join(OUT_PATH, 'deformed_body_pant_shirt.obj'))
-
 
         hv, hf, mapping = get_hres(pred_gar.v, pred_gar.f)
         pred_gar_hres = Mesh(hv, hf)
-        if garment_combine :
-            for garment_class_pair in garment_class_pairs[garment_class]:
-                gar_pair_hres = Mesh(filename=os.path.join(OUT_PATH, "{}_gar_hres_{}_{:04d}.obj".format(gender, garment_class_pair, i)))
-                print(len(body.v), body.f.min(), body.f.max())
-                print(len(pred_gar_hres.v), pred_gar_hres.f.min(), pred_gar_hres.f.max())
-                print(np.vstack((body.v, pred_gar_hres.v)).shape, np.min(pred_gar_hres.f + len(body.v)), np.max(pred_gar_hres.f + len(body.v)))
-                #gar_pair_hres = remove_interpenetration_fast(gar_pair_hres, pred_gar_hres)
 
-                for _ in range(3):
-                    gar_pair_hres = remove_interpenetration_fast(gar_pair_hres, pred_body)
-                for _ in range(3):
-                    gar_pair_hres = remove_interpenetration_fast(gar_pair_hres,
-                                                                 Mesh(np.vstack((body.v, pred_gar_hres.v)), np.vstack(
-                                                                     (body.f, pred_gar_hres.f + len(body.v)))))
-
-                pred_gar_hres_inverse, _ = remove_interpenetration_fast_custom(pred_gar_hres,
-                                                             Mesh(np.vstack((body.v, gar_pair_hres.v)), np.vstack(
-                                                                 (body.f, gar_pair_hres.f + len(body.v)))),threshold=0.000005, inverse=True)
-
-                gar_pair_hres.write_obj(os.path.join(OUT_PATH, "new2_{}_gar_hres_{}_inter_{}_{:04d}.obj".format(gender, garment_class_pair, garment_class, i)))
+        for garment_class_pair in garment_class_pairs[garment_class]:
+            gar_pair_hres = Mesh(filename=os.path.join(OUT_PATH, "bcnet_model_{}_gar_hres_{}_{:04d}.obj".format(BCNET_MODEL_NUM, garment_class_pair, i)))
+            # print(len(body.v), body.f.min(), body.f.max())
+            # print(len(pred_gar_hres.v), pred_gar_hres.f.min(), pred_gar_hres.f.max())
+            # print(np.vstack((body.v, pred_gar_hres.v)).shape, np.min(pred_gar_hres.f + len(body.v)), np.max(pred_gar_hres.f + len(body.v)))
+            # gar_pair_hres = remove_interpenetration_fast(gar_pair_hres, pred_gar_hres)
+            for _ in range(3):
+                gar_pair_hres = remove_interpenetration_fast(gar_pair_hres, Mesh(np.vstack((body.v, pred_gar_hres.v)), np.vstack((body.f, pred_gar_hres.f + len(body.v)))))
+            gar_pair_hres.write_obj(os.path.join(OUT_PATH, "bcnet_model_{}_gar_hres_{}_inter_{}_{:04d}.obj".format(BCNET_MODEL_NUM, garment_class_pair, garment_class, i)))
 
         # save body and predicted garment
-        body.write_obj(os.path.join(OUT_PATH, "{}_body_{:04d}.obj".format(gender, i)))
-        pred_gar.write_obj(os.path.join(OUT_PATH, "{}_gar_{}_{:04d}.obj".format(gender, garment_class, i)))
-        pred_gar_hres.write_obj(os.path.join(OUT_PATH, "{}_gar_hres_{}_{:04d}.obj".format(gender, garment_class, i)))
-        pred_gar_hres_inverse.write_obj(os.path.join(OUT_PATH, "{}_gar_hres_{}_{:04d}_inverse.obj".format(gender, garment_class, i)))
+        body.write_obj(os.path.join(OUT_PATH, "bcnet_model_{}.obj".format(BCNET_MODEL_NUM)))
+        pred_gar.write_obj(os.path.join(OUT_PATH, "bcnet_model_{}_gar_{}_{:04d}.obj".format(BCNET_MODEL_NUM, garment_class, i)))
+        pred_gar_hres.write_obj(os.path.join(OUT_PATH, "bcnet_model_{}_gar_hres_{}_{:04d}.obj".format(BCNET_MODEL_NUM, garment_class, i)))
 
 
 def render_images():
@@ -200,4 +157,3 @@ if __name__ == '__main__':
         render_images()
     else:
         raise AttributeError
-    #make_body_mesh_with_clothes()

@@ -71,23 +71,6 @@ def get_sequence_inputs(garment_class, gender):
     gammas = np.tile(gamma[None, :], [thetas.shape[0], 1])
     return thetas, betas, gammas
 
-def make_body_mesh_with_clothes():
-    file_dir = '../data/BCNet_merging_mesh/4_0/'
-    file_name = file_dir.split('/')[-1]
-    body = Mesh(filename=os.path.join(file_dir,f'{file_name}_ori.obj'))
-    up = Mesh(filename=os.path.join(file_dir,f'{file_name}_up.obj'))
-    bottom = Mesh(filename=os.path.join(file_dir,f'{file_name}_bottom.obj'))
-
-    up = remove_interpenetration_fast(up, body)
-    pred_body = remove_interpenetration_fast_custom(body, up, threshold=0.0010)
-    pred_body.write_obj(os.path.join(file_dir, 'deformed_body_shirt_0001.obj'))
-
-    bottom = remove_interpenetration_fast(bottom, pred_body)
-    pred_body = remove_interpenetration_fast_custom(pred_body, bottom, threshold=0.0005)
-
-    pred_body.write_obj(os.path.join(file_dir, 'deformed_body_pant_shirt_00010_00005.obj'))
-
-
 
 def run_tailornet():
     gender = 'male'
@@ -200,4 +183,3 @@ if __name__ == '__main__':
         render_images()
     else:
         raise AttributeError
-    #make_body_mesh_with_clothes()

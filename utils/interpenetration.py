@@ -51,7 +51,7 @@ def get_nearest_points_and_normals(vert, base_verts, base_faces):
     return nearest_point, nearest_normals
 
 
-def remove_interpenetration_fast_custom(mesh, base, L=None, threshold = 0, inverse=False):
+def remove_interpenetration_fast_custom(mesh, base, L=None, thresh_dir=0, thresh_dist=0, inverse=False):
     """Deforms `mesh` to remove its interpenetration from `base`.
     This is posed as least square optimization problem which can be solved
     faster with sparse solver.
@@ -59,23 +59,35 @@ def remove_interpenetration_fast_custom(mesh, base, L=None, threshold = 0, inver
 
     eps = 0.001
     ww = 2.0
-    distance_threshold = threshold
+
+    # pdb.set_trace()
     nverts = mesh.v.shape[0]
 
     if L is None:
         L = laplacian(mesh.v, mesh.f)
 
     nearest_points, nearest_normals = get_nearest_points_and_normals(mesh.v, base.v, base.f)
-    direction = np.sign( np.sum((mesh.v - nearest_points) * nearest_normals, axis=-1) )
 
-    if not inverse:
-        indices = np.where(direction < 0)[0]
-    else:
-        indices = np.where(direction > 0)[0]
+    # mesh_normal = VertNormals(v=mesh.v, f=mesh.f).reshape((-1, 3))
 
-    indices_threshold = ((nearest_points[indices] - mesh.v[indices]) ** 2).mean(axis=1) < distance_threshold
-    indices = np.array([index for i, index in enumerate(indices) if indices_threshold[i]])
+    direction = np.sign(np.sum((mesh.v - nearest_points) * nearest_normals,
+                               axis=-1))  # when merging, mesh : body, nearest_points : garment
 
+    check = np.sum((mesh.v - nearest_points) * nearest_normals, axis=-1)
+    # indices_all=  np.where(check <= thresh_dir )[0]
+    indices1 = np.where(check <= 0)[0]
+
+    indices_threshold = ((nearest_points[indices1] - mesh.v[indices1]) ** 2).mean(axis=1) < thresh_dist
+    indices1_new = np.array([index for i, index in enumerate(indices1) if indices_threshold[i]])
+
+    indices2 = np.where((0 < check) & (check <= thresh_dir) == True)[0]
+
+    indices_threshold = ((nearest_points[indices2] - mesh.v[indices2]) ** 2).mean(axis=1) < 0.5 * thresh_dist
+    indices2_new = np.array([index for i, index in enumerate(indices2) if indices_threshold[i]])
+
+    indices = np.sort(np.concatenate([indices1_new, indices2_new]))
+
+    ##fixed##
 
     pentgt_points = nearest_points[indices] - mesh.v[indices]
     pentgt_points = nearest_points[indices] \
@@ -96,7 +108,60 @@ def remove_interpenetration_fast_custom(mesh, base, L=None, threshold = 0, inver
 
     res = spsolve(A.T.dot(A), A.T.dot(b))
     mres = Mesh(v=res, f=mesh.f)
+    # pdb.set_trace()
     return mres, indices
+
+# def remove_interpenetration_fast_custom(mesh, base, L=None, threshold = 0, direction_threshold = 0, inverse=False):
+#     """Deforms `mesh` to remove its interpenetration from `base`.
+#     This is posed as least square optimization problem which can be solved
+#     faster with sparse solver.
+#     """
+#
+#     eps = 0.001
+#     ww = 2.0
+#     distance_threshold = threshold
+#     nverts = mesh.v.shape[0]
+#
+#     if L is None:
+#         L = laplacian(mesh.v, mesh.f)
+#
+#     # when merging, mesh : body, base: garment
+#     nearest_points, nearest_normals = get_nearest_points_and_normals(mesh.v, base.v, base.f)
+#     # when merging, nearest : garment
+#     #direction_logit = np.sum((mesh.v - nearest_points) * nearest_normals, axis=-1)
+#     direction_logit = np.sum((mesh.v - nearest_points) * nearest_normals, axis=-1) * (((mesh.v - nearest_points) ** 2).sum(axis=1) ** (1 / 2))
+#
+#     # when merging, nearest garment vertex에서 bdoy vertex 까지의 벡터와 garment vertext에서의 노말벡터의 각도인데 이게 보통은 음수야
+#
+#     if not inverse:
+#         indices = np.where(direction_logit < direction_threshold)[0]
+#     else:
+#         indices = np.where(direction_logit > direction_threshold)[0]
+#
+#     indices_threshold = ((nearest_points[indices] - mesh.v[indices]) ** 2).mean(axis=1) < distance_threshold
+#     indices = np.array([index for i, index in enumerate(indices) if indices_threshold[i]])
+#
+#
+#     pentgt_points = nearest_points[indices] - mesh.v[indices]
+#     pentgt_points = nearest_points[indices] \
+#                     + eps * pentgt_points / np.expand_dims(0.0001 + np.linalg.norm(pentgt_points, axis=1), 1)
+#     tgt_points = mesh.v.copy()
+#     tgt_points[indices] = ww * pentgt_points
+#
+#     rc = np.arange(nverts)
+#     data = np.ones(nverts)
+#     data[indices] *= ww
+#     I = csr_matrix((data, (rc, rc)), shape=(nverts, nverts))
+#
+#     A = vstack([L, I])
+#     b = np.vstack((
+#         L.dot(mesh.v),
+#         tgt_points
+#     ))
+#
+#     res = spsolve(A.T.dot(A), A.T.dot(b))
+#     mres = Mesh(v=res, f=mesh.f)
+#     return mres, indices
 
 def remove_interpenetration_fast(mesh, base, L=None, inverse=False):
     """Deforms `mesh` to remove its interpenetration from `base`.
